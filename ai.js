@@ -24,9 +24,9 @@ const TEMP_IMAGE_DIR = path.join(_path, 'data/temp/ai_images');
 
 // 聊天API配置（只用于文本聊天）
 const API_CONFIG = {
-  baseUrl: "https://api.gptgod.online/v1",
-  apiKey: "",
-  chatModel: "gemini-3-pro",
+  baseUrl: 'https://api.gptgod.online/v1',
+  apiKey: '',
+  chatModel: 'gemini-3-pro',
   temperature: 1.3,
   max_tokens: 6000,
   top_p: 0.9,
@@ -44,32 +44,28 @@ const WHITELIST = {
 
 // 黑名单配置（仅用户级别）
 const BLACKLIST = {
-  users: []  // 添加用户QQ号到这里
+  users: []
 };
 
 // 独立识图配置（完全独立，不使用聊天API配置）
 const VISION_CONFIG = {
   enabled: true,
-  // 识图API配置
-  apiBaseUrl: "https://api.gptgod.online/v1",
-  apiKey: "",
-  model: "claude-3-sonnet-20240229",
-  // 文件上传配置（可选，可以复用识图API或使用独立上传服务）
+  apiBaseUrl: 'https://api.gptgod.online/v1',
+  apiKey: 'sk-EpFuQjFEHEip0lDapgn5FSZnknmpYYDX12G9kSRCniww1qRV',
+  model: 'claude-3-sonnet-20240229',
   uploadEnabled: true,
-  uploadUrl: "https://api.gptgod.online/v1/file",
-  // 识图参数
-  temperature: 1.0,
+  uploadUrl: 'https://api.gptgod.online/v1/file',
+  temperature: 1,
   max_tokens: 2000,
   timeout: 30000,
-  // 提示词配置
-  systemPrompt: "请详细描述这张图片的内容，包括人物、场景、物体、颜色、动作、情绪等细节"
+  systemPrompt: `请详细描述这张图片的内容，包括人物、场景、物体、颜色、动作、情绪等细节`
 };
 
 // 触发配置
 const TRIGGER_CONFIG = {
-  prefix: "风云",
+  prefix: '白子',
   globalAICooldown: 3,
-  globalAIChance: 0.3
+  globalAIChance: 0.8
 };
 
 // 人设配置
@@ -92,10 +88,10 @@ const PERSONA = `我是${Bot.nickname}。
 // 语义检索配置
 const EMBEDDING_CONFIG = {
   enabled: true,
-  provider: "lightweight",
+  provider: 'lightweight',
   apiUrl: null,
   apiKey: null,
-  apiModel: "text-embedding-ada-002",
+  apiModel: 'text-embedding-ada-002',
   maxContexts: 5,
   similarityThreshold: 0.6,
   cacheExpiry: 86400
@@ -592,7 +588,7 @@ export class XRKAIAssistant extends plugin {
       return isInWhitelist();
     }
 
-    // 场景3: 全局AI触发（仅限群聊）- 修复主动回复
+    // 场景3: 全局AI触发（仅限群聊）- 简化版：只判断概率
     if (!e.isGroup) return false;
 
     const groupIdNum = Number(e.group_id);
@@ -604,40 +600,21 @@ export class XRKAIAssistant extends plugin {
     const groupId = e.group_id;
     const state = this.globalAIState.get(groupId) || {
       lastTrigger: 0,
-      messageCount: 0,
-      lastMessageTime: 0,
-      activeUsers: new Set()
     };
 
     const now = Date.now();
-
-    // 超过1分钟未发言则重置计数
-    if (now - state.lastMessageTime > 60000) {
-      state.messageCount = 1;
-      state.activeUsers.clear();
-      state.activeUsers.add(e.user_id);
-    } else {
-      state.messageCount++;
-      state.activeUsers.add(e.user_id);
-    }
-    state.lastMessageTime = now;
-
     const cooldown = (TRIGGER_CONFIG.globalAICooldown || 3) * 1000;
     const chance = TRIGGER_CONFIG.globalAIChance || 0.3;
 
-    // 修复主动回复：放宽触发条件
-    const canTrigger = now - state.lastTrigger > cooldown &&
-      (state.messageCount >= 2 && state.activeUsers.size >= 1 || state.messageCount >= 4);
+    // 简化判断：只需冷却时间已过，并且随机数小于概率
+    const canTrigger = now - state.lastTrigger > cooldown && Math.random() < chance;
 
-    if (canTrigger && Math.random() < chance) {
+    if (canTrigger) {
       state.lastTrigger = now;
-      state.messageCount = 0;
-      state.activeUsers.clear();
       this.globalAIState.set(groupId, state);
       return true;
     }
 
-    this.globalAIState.set(groupId, state);
     return false;
   }
 
