@@ -557,8 +557,8 @@ app.get('/', (req, res) => {
 });
 
 // 配置文件路径
-const CONFIG_JSON_PATH = path.join(__dirname, '../../data/ai/config.json');
 const _path = path.resolve(__dirname, '../../..');
+const CONFIG_JSON_PATH = path.join(_path, 'data/ai/config.json');
 
 // 提取数组的辅助函数
 function extractArray(str, key) {
