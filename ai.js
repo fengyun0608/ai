@@ -165,7 +165,16 @@ const BLACKLIST = configManager.getConfigValue('blacklist');
 const VISION_CONFIG = configManager.getConfigValue('visionConfig');
 const TRIGGER_CONFIG = configManager.getConfigValue('triggerConfig');
 const EMBEDDING_CONFIG = configManager.getConfigValue('embeddingConfig');
-const SECURITY_CONFIG = configManager.getConfigValue('securityConfig');
+let SECURITY_CONFIG = configManager.getConfigValue('securityConfig');
+// 确保SECURITY_CONFIG始终是一个对象
+if (!SECURITY_CONFIG || typeof SECURITY_CONFIG !== 'object') {
+  SECURITY_CONFIG = {
+    webAdminPort: 54188,
+    tempCodeExpire: 300,
+    tempCodes: {},
+    outerIp: ''
+  };
+}
 
 // 人设配置
 const PERSONA = `我是${Bot.nickname}，蔚蓝档案里的砂狼白子。
@@ -254,14 +263,18 @@ async function getOuterIp() {
   try {
     const res = await fetch('https://api.ipify.org?format=json', { timeout: 5000 });
     const data = await res.json();
-    SECURITY_CONFIG.outerIp = data.ip;
+    if (SECURITY_CONFIG) {
+      SECURITY_CONFIG.outerIp = data.ip;
+    }
     return data.ip;
   } catch (err) {
     console.error(`\x1b[31m【风云AI-安全配置】主接口获取外网IP失败：${err.message}\x1b[0m`);
     try {
       const res = await fetch('https://icanhazip.com', { timeout: 5000 });
       const ip = (await res.text()).trim();
-      SECURITY_CONFIG.outerIp = ip;
+      if (SECURITY_CONFIG) {
+        SECURITY_CONFIG.outerIp = ip;
+      }
       return ip;
     } catch (err2) {
       console.error(`\x1b[31m【风云AI-安全配置】备用接口获取外网IP失败：${err2.message}\x1b[0m`);
@@ -272,7 +285,7 @@ async function getOuterIp() {
 
 function generateRandomCode() {
   let code;
-  const tempCodes = SECURITY_CONFIG.tempCodes || {};
+  const tempCodes = (SECURITY_CONFIG?.tempCodes) || {};
   do {
     code = Math.floor(100000 + Math.random() * 900000).toString();
   } while (tempCodes[code]);
@@ -315,7 +328,7 @@ async function loadWebAdmin() {
     }
     
     // 检查端口占用情况
-    const port = SECURITY_CONFIG.webAdminPort || 54188;
+    const port = (SECURITY_CONFIG?.webAdminPort) || 54188;
     const portTaken = await isPortTaken(port);
     
     if (portTaken) {
@@ -341,7 +354,13 @@ async function loadWebAdmin() {
       
       // 将安全配置传递给web-admin
       if (module.setSecurityConfig) {
-        module.setSecurityConfig(SECURITY_CONFIG);
+        const validConfig = SECURITY_CONFIG || {
+          webAdminPort: 54188,
+          tempCodeExpire: 300,
+          tempCodes: {},
+          outerIp: ''
+        };
+        module.setSecurityConfig(validConfig);
         console.log(`\x1b[36m【风云AI-网页管理端】已传递安全配置\x1b[0m`);
       }
       
@@ -383,12 +402,14 @@ export class XRKAIAssistant extends plugin {
       priority: 99999,
       rule: [
         { reg: '.*', fnc: 'handleMessage', log: false },
+        { reg: /^#ai菜单$/, fnc: 'showMenu', event: 'message.group', log: true },
         { reg: /^#ai配置(登陆|登录)$/, fnc: 'sendConfigUrl', event: 'message.group', log: true },
         { reg: /^#ai状态$/, fnc: 'showStatus', event: 'message.group', log: true },
+        { reg: /^#ai配置查看$/, fnc: 'showConfig', event: 'message.group', log: true },
         { reg: /^#加入本群ai$/, fnc: 'addGroupToWhitelist', event: 'message.group', log: true },
         { reg: /^#关闭本群ai$/, fnc: 'removeGroupFromWhitelist', event: 'message.group', log: true },
-        { reg: /^#拉黑本群ai$/, fnc: 'addToGlobalBlacklist', event: 'message.group', log: true },
-        { reg: /^#拉白本群ai$/, fnc: 'removeFromGlobalBlacklist', event: 'message.group', log: true },
+        { reg: /^#开启全局ai$/, fnc: 'enableGlobalAI', event: 'message.group', log: true },
+        { reg: /^#关闭全局ai$/, fnc: 'disableGlobalAI', event: 'message.group', log: true },
         { reg: /^#ai拉黑 @/, fnc: 'blacklistUser', event: 'message.group', log: true },
         { reg: /^#ai拉白 @/, fnc: 'whitelistUser', event: 'message.group', log: true },
         { reg: /^#配置ai接口(.*)$/, fnc: 'setAIInterface', event: 'message.group', log: true },
@@ -433,13 +454,14 @@ export class XRKAIAssistant extends plugin {
       }
 
       const tempCode = generateRandomCode();
-      const expireTime = Date.now() + (SECURITY_CONFIG.tempCodeExpire || 300) * 1000;
+      const expireTime = Date.now() + (SECURITY_CONFIG?.tempCodeExpire || 300) * 1000;
       
+      // 确保SECURITY_CONFIG.tempCodes存在
       SECURITY_CONFIG.tempCodes = SECURITY_CONFIG.tempCodes || {};
       SECURITY_CONFIG.tempCodes[tempCode] = { used: false, expire: expireTime, type: 'access' };
       
-      const outerIp = SECURITY_CONFIG.outerIp || await getOuterIp();
-      const webAdminPort = SECURITY_CONFIG.webAdminPort || 54188;
+      const outerIp = SECURITY_CONFIG?.outerIp || await getOuterIp();
+      const webAdminPort = SECURITY_CONFIG?.webAdminPort || 54188;
       const configUrl = `http://${outerIp}:${webAdminPort}/?code=${tempCode}`;
 
       const senderQQ = e.user_id.toString().trim();
@@ -534,9 +556,9 @@ export class XRKAIAssistant extends plugin {
       let webAdminStatus = '❌ 未加载';
       if (webAdminLoaded) {
         if (isAnotherInstanceRunning) {
-          webAdminStatus = `✅ 已由另一处运行 (端口: ${SECURITY_CONFIG.webAdminPort})`;
+          webAdminStatus = `✅ 已由另一处运行 (端口: ${SECURITY_CONFIG?.webAdminPort || 54188})`;
         } else {
-          webAdminStatus = `✅ 已加载 (端口: ${SECURITY_CONFIG.webAdminPort})`;
+          webAdminStatus = `✅ 已加载 (端口: ${SECURITY_CONFIG?.webAdminPort || 54188})`;
         }
       } else if (webAdminError) {
         webAdminStatus = `❌ 加载失败: ${webAdminError.substring(0, 50)}...`;
@@ -545,7 +567,7 @@ export class XRKAIAssistant extends plugin {
       const statusMsg = [
         '🤖 风云AI助手状态',
         '━━━━━━━━━━━━━━━━━━━━━━',
-        `📊 配置方式: ✅ 配置文件管理`,
+        `📊 配置存储: ✅ 配置文件管理`,
         `🔑 聊天API: ${API_CONFIG.apiKey ? '✅ 已配置' : '❌ 未配置'}`,
         `🔑 识图API: ${VISION_CONFIG.apiKey ? '✅ 已配置' : '❌ 未配置'}`,
         `🤖 聊天模型: ${API_CONFIG.chatModel || '未配置'}`,
@@ -566,6 +588,107 @@ export class XRKAIAssistant extends plugin {
     } catch (error) {
       console.error(`\x1b[31m【风云AI】显示状态失败: ${error.message}\x1b[0m`);
       await e.reply('❌ 获取状态信息失败');
+    }
+    
+    return true;
+  }
+
+  /**
+   * #ai菜单指令
+   */
+  async showMenu(e) {
+    try {
+      const menuMsg = [
+        '🤖 风云AI助手 - 指令菜单',
+        '━━━━━━━━━━━━━━━━━━━━━━',
+        '📋 基础指令',
+        '#ai菜单 - 显示本菜单',
+        '#ai状态 - 查看AI状态',
+        '#ai配置查看 - 查看当前配置',
+        '#ai配置登陆 - 获取配置地址',
+        '',
+        '📊 群管理指令',
+        '#加入本群ai - 将本群加入白名单',
+        '#关闭本群ai - 将本群移出白名单',
+        '#开启全局ai - 开启本群全局AI触发',
+        '#关闭全局ai - 关闭本群全局AI触发',
+        '',
+        '👥 用户管理指令',
+        '#ai拉黑 @用户 - 拉黑指定用户',
+        '#ai拉白 @用户 - 拉白指定用户',
+        '',
+        '⚙️ 配置指令',
+        '#配置ai接口地址 - 设置AI接口',
+        '#配置ai密钥密钥 - 设置AI密钥',
+        '#设置ai模型模型 - 设置AI模型',
+        '',
+        '💡 使用说明',
+        '- 输入 #ai菜单 查看所有指令',
+        '- @机器人或输入触发前缀可直接对话',
+        '- 全局AI触发需先开启 #开启全局ai',
+        '━━━━━━━━━━━━━━━━━━━━━━',
+        `📌 当前触发前缀: "${TRIGGER_CONFIG.prefix || '无'}"`,
+        `📌 使用触发前缀: "${TRIGGER_CONFIG.prefix || ''} 你好"`
+      ].join('\n');
+      
+      await e.reply(menuMsg);
+    } catch (error) {
+      console.error(`\x1b[31m【风云AI】显示菜单失败: ${error.message}\x1b[0m`);
+      await e.reply('❌ 获取菜单信息失败');
+    }
+    
+    return true;
+  }
+
+  /**
+   * #ai配置查看指令
+   */
+  async showConfig(e) {
+    if (!e.isMaster) {
+      await e.reply('❌ 只有主人才能查看配置！');
+      return true;
+    }
+    
+    try {
+      const configMsg = [
+        '⚙️ 风云AI助手 - 当前配置',
+        '━━━━━━━━━━━━━━━━━━━━━━',
+        '📡 聊天API配置',
+        `基础地址: ${API_CONFIG.baseUrl}`,
+        `API密钥: ${API_CONFIG.apiKey ? '已配置（隐藏）' : '未配置'}`,
+        `聊天模型: ${API_CONFIG.chatModel || '未配置'}`,
+        `温度参数: ${API_CONFIG.temperature}`,
+        `最大 tokens: ${API_CONFIG.max_tokens}`,
+        '',
+        '👁️ 识图配置',
+        `API地址: ${VISION_CONFIG.apiBaseUrl}`,
+        `API密钥: ${VISION_CONFIG.apiKey ? '已配置（隐藏）' : '未配置'}`,
+        `识图模型: ${VISION_CONFIG.model || '未配置'}`,
+        `上传地址: ${VISION_CONFIG.uploadUrl}`,
+        `识图功能: ${VISION_CONFIG.enabled ? '✅ 已启用' : '❌ 未启用'}`,
+        '',
+        '💬 触发配置',
+        `触发前缀: "${TRIGGER_CONFIG.prefix || '无'}"`,
+        `全局冷却: ${TRIGGER_CONFIG.globalAICooldown}秒`,
+        `触发概率: ${TRIGGER_CONFIG.globalAIChance * 100}%`,
+        '',
+        '🔍 语义检索配置',
+        `启用状态: ${EMBEDDING_CONFIG.enabled ? '✅ 已启用' : '❌ 未启用'}`,
+        `服务提供商: ${EMBEDDING_CONFIG.provider}`,
+        `上下文数量: ${EMBEDDING_CONFIG.maxContexts}`,
+        `相似度阈值: ${EMBEDDING_CONFIG.similarityThreshold}`,
+        '',
+        '🔒 安全配置',
+        `管理端口: ${SECURITY_CONFIG?.webAdminPort || 54188}`,
+        `临时码有效期: ${SECURITY_CONFIG?.tempCodeExpire || 300}秒`,
+        '━━━━━━━━━━━━━━━━━━━━━━',
+        '💡 使用 #ai配置登陆 可进入网页配置' 
+      ].join('\n');
+      
+      await e.reply(configMsg);
+    } catch (error) {
+      console.error(`\x1b[31m【风云AI】显示配置失败: ${error.message}\x1b[0m`);
+      await e.reply('❌ 获取配置信息失败');
     }
     
     return true;
@@ -632,11 +755,11 @@ export class XRKAIAssistant extends plugin {
   }
 
   /**
-   * #拉黑本群ai指令
+   * #开启全局ai指令
    */
-  async addToGlobalBlacklist(e) {
+  async enableGlobalAI(e) {
     if (!e.isMaster) {
-      await e.reply('❌ 只有主人才能拉黑本群！');
+      await e.reply('❌ 只有主人才能开启全局AI！');
       return true;
     }
     
@@ -645,28 +768,28 @@ export class XRKAIAssistant extends plugin {
       const globalGroups = Array.isArray(WHITELIST.globalGroups) ? WHITELIST.globalGroups : [];
       
       if (globalGroups.includes(groupId)) {
-        await e.reply('✅ 本群已在全局黑名单中！');
+        await e.reply('✅ 本群已开启全局AI！');
         return true;
       }
       
       globalGroups.push(groupId);
       saveConfigValue('whitelist.globalGroups', globalGroups);
       
-      await e.reply('✅ 已将本群添加到全局AI黑名单！');
+      await e.reply('✅ 已为本群开启全局AI！');
       return true;
     } catch (error) {
-      console.error(`\x1b[31m【风云AI】添加群到全局黑名单失败: ${error.message}\x1b[0m`);
-      await e.reply('❌ 添加群到全局黑名单失败！');
+      console.error(`\x1b[31m【风云AI】开启全局AI失败: ${error.message}\x1b[0m`);
+      await e.reply('❌ 开启全局AI失败！');
       return true;
     }
   }
 
   /**
-   * #拉白本群ai指令
+   * #关闭全局ai指令
    */
-  async removeFromGlobalBlacklist(e) {
+  async disableGlobalAI(e) {
     if (!e.isMaster) {
-      await e.reply('❌ 只有主人才能拉白本群！');
+      await e.reply('❌ 只有主人才能关闭全局AI！');
       return true;
     }
     
@@ -675,18 +798,18 @@ export class XRKAIAssistant extends plugin {
       const globalGroups = Array.isArray(WHITELIST.globalGroups) ? WHITELIST.globalGroups : [];
       
       if (!globalGroups.includes(groupId)) {
-        await e.reply('✅ 本群不在全局黑名单中！');
+        await e.reply('✅ 本群未开启全局AI！');
         return true;
       }
       
       const newGlobalGroups = globalGroups.filter(id => id !== groupId);
       saveConfigValue('whitelist.globalGroups', newGlobalGroups);
       
-      await e.reply('✅ 已将本群从全局AI黑名单中移除！');
+      await e.reply('✅ 已为本群关闭全局AI！');
       return true;
     } catch (error) {
-      console.error(`\x1b[31m【风云AI】移除群从全局黑名单失败: ${error.message}\x1b[0m`);
-      await e.reply('❌ 移除群从全局黑名单失败！');
+      console.error(`\x1b[31m【风云AI】关闭全局AI失败: ${error.message}\x1b[0m`);
+      await e.reply('❌ 关闭全局AI失败！');
       return true;
     }
   }
@@ -895,16 +1018,16 @@ export class XRKAIAssistant extends plugin {
     await loadWebAdmin();
     
     if (isAnotherInstanceRunning) {
-      console.log(`\x1b[33m⚓ 网页管理端: ✅ 已由另一处运行 (端口: ${SECURITY_CONFIG.webAdminPort})\x1b[0m`);
-    } else {
-      console.log(`\x1b[32m⚓ 网页管理端: ${webAdminLoaded ? '✅ 已加载' : '❌ 未加载'}\x1b[0m`);
-    }
+        console.log(`\x1b[33m⚓ 网页管理端: ✅ 已由另一处运行 (端口: ${SECURITY_CONFIG?.webAdminPort || 54188})\x1b[0m`);
+      } else {
+        console.log(`\x1b[32m⚓ 网页管理端: ${webAdminLoaded ? '✅ 已加载' : '❌ 未加载'}\x1b[0m`);
+      }
+      
+      if (webAdminLoaded) {
+        console.log(`\x1b[32m📡 管理端口: ${SECURITY_CONFIG?.webAdminPort || 54188}\x1b[0m`);
+      }
     
-    if (webAdminLoaded) {
-      console.log(`\x1b[32m📡 管理端口: ${SECURITY_CONFIG.webAdminPort}\x1b[0m`);
-    }
-    
-    console.log(`\x1b[32m📝 配置方式: ✅ 直接定义在ai.js中\x1b[0m`);
+    console.log(`\x1b[32m📝 配置存储: ✅ 配置文件管理\x1b[0m`);
     console.log('\x1b[32m└─ ✅ 初始化完成\x1b[0m');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   }
@@ -1041,38 +1164,65 @@ export class XRKAIAssistant extends plugin {
       };
 
       let result;
-      try {
-        // 执行聊天工作流
-        result = await chatStream.execute(e, questionObj, API_CONFIG);
-      } catch (aiError) {
-        console.error(`\x1b[31m【风云AI】AI调用失败: ${aiError.message}\x1b[0m`);
-        
-        if (aiError.message.includes('Invalid character') || aiError.message.includes('invalid char')) {
-          console.log('\x1b[33m【风云AI】检测到无效字符错误，尝试清理后重试...\x1b[0m');
+      let retryCount = 0;
+      const maxRetries = 3;
+      let lastError = null;
+      
+      // 执行AI调用，最多重试3次
+      while (retryCount < maxRetries) {
+        try {
+          retryCount++;
+          console.log(`\x1b[36m【风云AI】正在执行AI调用 (第${retryCount}/${maxRetries}次)\x1b[0m`);
           
-          const cleanedQuestionObj = { ...questionObj };
-          if (cleanedQuestionObj.content) {
-            cleanedQuestionObj.content = cleanedQuestionObj.content
-              .replace(/[^\x20-\x7E\u4e00-\u9fa5]/g, '')
-              .trim();
-            cleanedQuestionObj.text = cleanedQuestionObj.content;
-          }
+          // 执行聊天工作流
+          result = await chatStream.execute(e, questionObj, API_CONFIG);
+          console.log(`\x1b[32m【风云AI】AI调用成功 (第${retryCount}/${maxRetries}次)\x1b[0m`);
+          break; // 成功，跳出循环
+        } catch (aiError) {
+          lastError = aiError;
+          console.error(`\x1b[31m【风云AI】AI调用失败 (第${retryCount}/${maxRetries}次): ${aiError.message}\x1b[0m`);
           
-          try {
-            result = await chatStream.execute(e, cleanedQuestionObj, API_CONFIG);
-          } catch (retryError) {
-            console.error(`\x1b[31m【风云AI】重试后仍然失败: ${retryError.message}\x1b[0m`);
-            if (!isGlobalTrigger) {
-              await e.reply('AI调用失败，请稍后再试~');
+          // 无效字符错误特殊处理
+          if (retryCount === 1 && (aiError.message.includes('Invalid character') || aiError.message.includes('invalid char'))) {
+            console.log('\x1b[33m【风云AI】检测到无效字符错误，尝试清理后重试...\x1b[0m');
+            
+            const cleanedQuestionObj = { ...questionObj };
+            if (cleanedQuestionObj.content) {
+              cleanedQuestionObj.content = cleanedQuestionObj.content
+                .replace(/[^\x20-\x7E\u4e00-\u9fa5]/g, '')
+                .trim();
+              cleanedQuestionObj.text = cleanedQuestionObj.content;
             }
-            return true;
+            
+            // 清理后直接重试，不计入重试次数
+            try {
+              console.log(`\x1b[36m【风云AI】正在执行无效字符清理后重试\x1b[0m`);
+              result = await chatStream.execute(e, cleanedQuestionObj, API_CONFIG);
+              console.log(`\x1b[32m【风云AI】无效字符清理后重试成功\x1b[0m`);
+              break; // 成功，跳出循环
+            } catch (cleanRetryError) {
+              lastError = cleanRetryError;
+              console.error(`\x1b[31m【风云AI】无效字符清理后重试失败: ${cleanRetryError.message}\x1b[0m`);
+              // 继续正常重试流程
+            }
           }
-        } else {
-          if (!isGlobalTrigger) {
-            await e.reply('AI调用失败，请稍后再试~');
+          
+          // 如果还有重试次数，等待后重试
+          if (retryCount < maxRetries) {
+            const waitTime = 1000 * retryCount; // 指数退避：1s, 2s, 3s
+            console.log(`\x1b[33m【风云AI】${waitTime}ms后进行第${retryCount + 1}次重试...\x1b[0m`);
+            await BotUtil.sleep(waitTime);
           }
-          return true;
         }
+      }
+      
+      // 检查最终结果
+      if (!result && lastError) {
+        console.error(`\x1b[31m【风云AI】所有${maxRetries}次重试均失败: ${lastError.message}\x1b[0m`);
+        if (!isGlobalTrigger) {
+          await e.reply('AI调用失败，请稍后再试~');
+        }
+        return true;
       }
 
       if (!result) {
