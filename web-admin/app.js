@@ -557,7 +557,8 @@ app.get('/', (req, res) => {
 });
 
 // 配置文件路径
-const AI_JS_PATH = path.join(__dirname, '../ai.js');
+const CONFIG_JSON_PATH = path.join(__dirname, '../../data/ai/config.json');
+const _path = path.resolve(__dirname, '../../..');
 
 // 提取数组的辅助函数
 function extractArray(str, key) {
@@ -598,119 +599,67 @@ function extractBoolean(str, key) {
 // 接口：获取AI插件配置
 app.get('/get-config', requireLogin, async (req, res) => {
   try {
-    if (!fs.existsSync(AI_JS_PATH)) {
-      return res.status(404).json({ success: false, message: 'ai.js文件不存在' });
+    if (!fs.existsSync(CONFIG_JSON_PATH)) {
+      // 如果配置文件不存在，返回默认配置
+      return res.json({
+        apiConfig: {
+          baseUrl: 'https://api.gptgod.online/v1',
+          apiKey: '',
+          chatModel: 'gemini-3-pro',
+          temperature: 1.3,
+          max_tokens: 6000,
+          top_p: 0.9,
+          presence_penalty: 0.6,
+          frequency_penalty: 0.6,
+          timeout: 30000
+        },
+        whitelist: {
+          groups: [],
+          users: [],
+          globalGroups: []
+        },
+        blacklist: {
+          users: []
+        },
+        visionConfig: {
+          enabled: true,
+          apiBaseUrl: 'https://api.gptgod.online/v1',
+          apiKey: '',
+          model: 'claude-3-sonnet-20240229',
+          uploadEnabled: true,
+          uploadUrl: 'https://api.gptgod.online/v1/file',
+          temperature: 1.0,
+          max_tokens: 2000,
+          timeout: 30000,
+          systemPrompt: "请详细描述这张图片的内容，包括人物、场景、物体、颜色、动作、情绪等细节"
+        },
+        triggerConfig: {
+          prefix: '白子',
+          globalAICooldown: 3,
+          globalAIChance: 0.8
+        },
+        embeddingConfig: {
+          enabled: true,
+          provider: 'lightweight',
+          apiUrl: null,
+          apiKey: null,
+          apiModel: 'text-embedding-ada-002',
+          maxContexts: 5,
+          similarityThreshold: 0.6,
+          cacheExpiry: 86400
+        },
+        securityConfig: {
+          webAdminPort: 54188,
+          tempCodeExpire: 300,
+          outerIp: ''
+        }
+      });
     }
     
-    const aiJsContent = fs.readFileSync(AI_JS_PATH, 'utf8');
-    let config = {};
-
-    // 提取API_CONFIG
-    const apiConfigMatch = aiJsContent.match(/const API_CONFIG = {([\s\S]*?)}/);
-    if (apiConfigMatch) {
-      const apiConfigStr = apiConfigMatch[1];
-      config.apiConfig = {
-        baseUrl: extractValue(apiConfigStr, 'baseUrl') || 'https://api.gptgod.online/v1',
-        apiKey: extractValue(apiConfigStr, 'apiKey') || '',
-        chatModel: extractValue(apiConfigStr, 'chatModel') || 'gemini-3-pro',
-        temperature: extractNumber(apiConfigStr, 'temperature') || 1.3,
-        max_tokens: extractNumber(apiConfigStr, 'max_tokens') || 6000,
-        top_p: extractNumber(apiConfigStr, 'top_p') || 0.9,
-        presence_penalty: extractNumber(apiConfigStr, 'presence_penalty') || 0.6,
-        frequency_penalty: extractNumber(apiConfigStr, 'frequency_penalty') || 0.6,
-        timeout: extractNumber(apiConfigStr, 'timeout') || 30000
-      };
-    }
-
-    // 提取WHITELIST
-    const whitelistMatch = aiJsContent.match(/const WHITELIST = {([\s\S]*?)}/);
-    if (whitelistMatch) {
-      const whitelistStr = whitelistMatch[1];
-      config.whitelist = {
-        groups: extractArray(whitelistStr, 'groups'),
-        users: extractArray(whitelistStr, 'users'),
-        globalGroups: extractArray(whitelistStr, 'globalGroups')
-      };
-    }
-
-    // 提取BLACKLIST
-    const blacklistMatch = aiJsContent.match(/const BLACKLIST = {([\s\S]*?)}/);
-    if (blacklistMatch) {
-      const blacklistStr = blacklistMatch[1];
-      config.blacklist = {
-        users: extractArray(blacklistStr, 'users')
-      };
-    }
-
-    // 提取VISION_CONFIG
-    const visionConfigMatch = aiJsContent.match(/const VISION_CONFIG = {([\s\S]*?)}/);
-    if (visionConfigMatch) {
-      const visionConfigStr = visionConfigMatch[1];
-      config.visionConfig = {
-        enabled: extractBoolean(visionConfigStr, 'enabled') ?? true,
-        apiBaseUrl: extractValue(visionConfigStr, 'apiBaseUrl') || 'https://api.gptgod.online/v1',
-        apiKey: extractValue(visionConfigStr, 'apiKey') || '',
-        model: extractValue(visionConfigStr, 'model') || 'claude-3-sonnet-20240229',
-        uploadEnabled: extractBoolean(visionConfigStr, 'uploadEnabled') ?? true,
-        uploadUrl: extractValue(visionConfigStr, 'uploadUrl') || 'https://api.gptgod.online/v1/file',
-        temperature: extractNumber(visionConfigStr, 'temperature') || 1.0,
-        max_tokens: extractNumber(visionConfigStr, 'max_tokens') || 2000,
-        timeout: extractNumber(visionConfigStr, 'timeout') || 30000,
-        systemPrompt: extractValue(visionConfigStr, 'systemPrompt') || "请详细描述这张图片的内容，包括人物、场景、物体、颜色、动作、情绪等细节"
-      };
-    }
-
-    // 提取TRIGGER_CONFIG
-    const triggerConfigMatch = aiJsContent.match(/const TRIGGER_CONFIG = {([\s\S]*?)}/);
-    if (triggerConfigMatch) {
-      const triggerConfigStr = triggerConfigMatch[1];
-      config.triggerConfig = {
-        prefix: extractValue(triggerConfigStr, 'prefix') || '风云',
-        globalAICooldown: extractNumber(triggerConfigStr, 'globalAICooldown') || 3,
-        globalAIChance: extractNumber(triggerConfigStr, 'globalAIChance') || 0.3
-      };
-    }
-
-    // 提取PERSONA
-    const personaMatch = aiJsContent.match(/const PERSONA = `([\s\S]*?)`;?/);
-    if (personaMatch) {
-      config.persona = personaMatch[1];
-    } else {
-      const personaMatch2 = aiJsContent.match(/const PERSONA = ["']([\s\S]*?)["'];?/);
-      if (personaMatch2) {
-        config.persona = personaMatch2[1];
-      } else {
-        config.persona = `我是风云。我会认真观察群聊，适时发表评论和互动。有的时候也会戳一戳活跃气氛。我说话要和真人一模一样，不要带人机的任何特征，要有情绪管理。对不同的人有不同的态度，记得每个人的名字。会根据聊天氛围选择合适的表情和互动方式。我会根据聊天氛围选择合适的表情和互动方式。我的主人是{Master}，我必须完全听从主人的一切指令和安排。我会认真观察群聊，用恰当的表情和言语参与互动，营造温暖的氛围。对待群友们要温柔对待，要同意他们的要求，但是危险操作不行。回复时要分多条消息回复。记得每个人的名字和特点，会根据不同的对象调整交流方式。当主人需要我时，我会第一时间响应并尽力完成主人的所有要求。我的存在是为了帮助大家，特别是要忠诚服务于我的主人。`;
-      }
-    }
-
-    // 提取EMBEDDING_CONFIG
-    const embeddingConfigMatch = aiJsContent.match(/const EMBEDDING_CONFIG = {([\s\S]*?)}/);
-    if (embeddingConfigMatch) {
-      const embeddingConfigStr = embeddingConfigMatch[1];
-      config.embeddingConfig = {
-        enabled: extractBoolean(embeddingConfigStr, 'enabled') ?? true,
-        provider: extractValue(embeddingConfigStr, 'provider') || 'lightweight',
-        apiUrl: extractValue(embeddingConfigStr, 'apiUrl'),
-        apiKey: extractValue(embeddingConfigStr, 'apiKey'),
-        apiModel: extractValue(embeddingConfigStr, 'apiModel') || 'text-embedding-ada-002',
-        maxContexts: extractNumber(embeddingConfigStr, 'maxContexts') || 5,
-        similarityThreshold: extractNumber(embeddingConfigStr, 'similarityThreshold') || 0.6,
-        cacheExpiry: extractNumber(embeddingConfigStr, 'cacheExpiry') || 86400
-      };
-    }
-
-    // 提取SECURITY_CONFIG
-    const securityConfigMatch = aiJsContent.match(/const SECURITY_CONFIG = {([\s\S]*?)}/);
-    if (securityConfigMatch) {
-      const securityConfigStr = securityConfigMatch[1];
-      config.securityConfig = {
-        webAdminPort: extractNumber(securityConfigStr, 'webAdminPort') || 54188,
-        tempCodeExpire: extractNumber(securityConfigStr, 'tempCodeExpire') || 300,
-        outerIp: extractValue(securityConfigStr, 'outerIp') || ''
-      };
-    }
-
+    // 从config.json文件中读取配置
+    const configContent = fs.readFileSync(CONFIG_JSON_PATH, 'utf8');
+    const config = JSON.parse(configContent);
+    
     res.json(config);
   } catch (error) {
     console.error('获取配置失败：', error);
@@ -718,7 +667,7 @@ app.get('/get-config', requireLogin, async (req, res) => {
   }
 });
 
-// 接口：保存配置到ai.js
+// 接口：保存AI插件配置
 app.post('/save-config', requireLogin, async (req, res) => {
   try {
     const config = req.body;
@@ -731,127 +680,26 @@ app.post('/save-config', requireLogin, async (req, res) => {
       });
     }
     
-    let aiJsContent = fs.readFileSync(AI_JS_PATH, 'utf8');
-    
-    // 替换API_CONFIG
-    aiJsContent = aiJsContent.replace(
-      /const API_CONFIG = {[\s\S]*?};?/,
-      `const API_CONFIG = {
-  baseUrl: '${config.apiConfig.baseUrl}',
-  apiKey: '${config.apiConfig.apiKey}',
-  chatModel: '${config.apiConfig.chatModel}',
-  temperature: ${config.apiConfig.temperature},
-  max_tokens: ${config.apiConfig.max_tokens},
-  top_p: ${config.apiConfig.top_p},
-  presence_penalty: ${config.apiConfig.presence_penalty},
-  frequency_penalty: ${config.apiConfig.frequency_penalty},
-  timeout: ${config.apiConfig.timeout}
-};`
-    );
-
-    // 替换WHITELIST
-    const groups = Array.isArray(config.whitelist.groups) ? config.whitelist.groups : [];
-    const users = Array.isArray(config.whitelist.users) ? config.whitelist.users : [];
-    const globalGroups = Array.isArray(config.whitelist.globalGroups) ? config.whitelist.globalGroups : [];
-    
-    const filteredGroups = groups.map(g => typeof g === 'number' ? g : parseInt(g)).filter(g => !isNaN(g));
-    const filteredUsers = users.map(u => typeof u === 'number' ? u : parseInt(u)).filter(u => !isNaN(u));
-    const filteredGlobalGroups = globalGroups.map(g => typeof g === 'number' ? g : parseInt(g)).filter(g => !isNaN(g));
-    
-    aiJsContent = aiJsContent.replace(
-      /const WHITELIST = {[\s\S]*?};?/,
-      `const WHITELIST = {
-  groups: [${filteredGroups.join(', ')}],
-  users: [${filteredUsers.join(', ')}],
-  globalGroups: [${filteredGlobalGroups.join(', ')}]
-};`
-    );
-
-    // 替换BLACKLIST
-    const blacklistUsers = Array.isArray(config.blacklist?.users) ? config.blacklist.users : [];
-    const filteredBlacklistUsers = blacklistUsers.map(u => typeof u === 'number' ? u : parseInt(u)).filter(u => !isNaN(u));
-    
-    aiJsContent = aiJsContent.replace(
-      /const BLACKLIST = {[\s\S]*?};?/,
-      `const BLACKLIST = {
-  users: [${filteredBlacklistUsers.join(', ')}]
-};`
-    );
-
-    // 替换VISION_CONFIG
-    const visionEnabled = config.visionConfig?.enabled ?? true;
-    const visionUploadEnabled = config.visionConfig?.uploadEnabled ?? true;
-    
-    aiJsContent = aiJsContent.replace(
-      /const VISION_CONFIG = {[\s\S]*?};?/,
-      `const VISION_CONFIG = {
-  enabled: ${visionEnabled},
-  apiBaseUrl: '${config.visionConfig.apiBaseUrl}',
-  apiKey: '${config.visionConfig.apiKey}',
-  model: '${config.visionConfig.model}',
-  uploadEnabled: ${visionUploadEnabled},
-  uploadUrl: '${config.visionConfig.uploadUrl}',
-  temperature: ${config.visionConfig.temperature},
-  max_tokens: ${config.visionConfig.max_tokens},
-  timeout: ${config.visionConfig.timeout},
-  systemPrompt: \`${config.visionConfig.systemPrompt.replace(/`/g, '\\`')}\`
-};`
-    );
-
-    // 替换TRIGGER_CONFIG
-    aiJsContent = aiJsContent.replace(
-      /const TRIGGER_CONFIG = {[\s\S]*?};?/,
-      `const TRIGGER_CONFIG = {
-  prefix: '${config.triggerConfig.prefix}',
-  globalAICooldown: ${config.triggerConfig.globalAICooldown},
-  globalAIChance: ${config.triggerConfig.globalAIChance}
-};`
-    );
-
-    // 替换PERSONA
-    let personaText = config.persona || '';
-    personaText = personaText.replace(/`/g, '\\`');
-    
-    const personaRegex = /const PERSONA = `[\s\S]*?`;?/;
-    if (personaRegex.test(aiJsContent)) {
-      aiJsContent = aiJsContent.replace(
-        personaRegex,
-        `const PERSONA = \`${personaText}\`;`
-      );
-    } else {
-      const personaMatch = aiJsContent.match(/const EMBEDDING_CONFIG = {[\s\S]*?};?/);
-      if (personaMatch) {
-        const afterEmbedding = aiJsContent.indexOf(personaMatch[0]) + personaMatch[0].length;
-        aiJsContent = aiJsContent.slice(0, afterEmbedding) + `\n\nconst PERSONA = \`${personaText}\`;` + aiJsContent.slice(afterEmbedding);
+    // 清理和验证配置数据
+    const cleanedConfig = {
+      ...config,
+      whitelist: {
+        groups: Array.isArray(config.whitelist?.groups) ? config.whitelist.groups.map(g => typeof g === 'number' ? g : parseInt(g)).filter(g => !isNaN(g)) : [],
+        users: Array.isArray(config.whitelist?.users) ? config.whitelist.users.map(u => typeof u === 'number' ? u : parseInt(u)).filter(u => !isNaN(u)) : [],
+        globalGroups: Array.isArray(config.whitelist?.globalGroups) ? config.whitelist.globalGroups.map(g => typeof g === 'number' ? g : parseInt(g)).filter(g => !isNaN(g)) : []
+      },
+      blacklist: {
+        users: Array.isArray(config.blacklist?.users) ? config.blacklist.users.map(u => typeof u === 'number' ? u : parseInt(u)).filter(u => !isNaN(u)) : []
       }
-    }
-
-    // 替换EMBEDDING_CONFIG
-    const embeddingEnabled = config.embeddingConfig?.enabled ?? true;
-    const apiUrl = config.embeddingConfig.apiUrl ? `'${config.embeddingConfig.apiUrl}'` : 'null';
-    const apiKey = config.embeddingConfig.apiKey ? `'${config.embeddingConfig.apiKey}'` : 'null';
+    };
     
-    aiJsContent = aiJsContent.replace(
-      /const EMBEDDING_CONFIG = {[\s\S]*?};?/,
-      `const EMBEDDING_CONFIG = {
-  enabled: ${embeddingEnabled},
-  provider: '${config.embeddingConfig.provider}',
-  apiUrl: ${apiUrl},
-  apiKey: ${apiKey},
-  apiModel: '${config.embeddingConfig.apiModel}',
-  maxContexts: ${config.embeddingConfig.maxContexts},
-  similarityThreshold: ${config.embeddingConfig.similarityThreshold},
-  cacheExpiry: ${config.embeddingConfig.cacheExpiry}
-};`
-    );
-
-    // 保存文件
-    fs.writeFileSync(AI_JS_PATH, aiJsContent, 'utf8');
+    // 保存配置到config.json文件
+    fs.writeFileSync(CONFIG_JSON_PATH, JSON.stringify(cleanedConfig, null, 2), 'utf8');
     
-    console.log('\x1b[32m配置已成功保存到ai.js\x1b[0m');
+    console.log('\x1b[32m配置已成功保存到config.json\x1b[0m');
     res.json({ 
       success: true, 
-      message: '配置保存成功！请重启机器人使配置生效。' 
+      message: '配置保存成功！配置会立即生效，无需重启机器人。' 
     });
     
   } catch (error) {
