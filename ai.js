@@ -20,7 +20,7 @@ const _path = process.cwd();
 const PLUGIN_PATH = path.join(_path, 'plugins/ai');
 const TEMP_IMAGE_DIR = path.join(_path, 'data/temp/ai_images');
 
-// ==================== 配置管理类 ====================
+// ==================== 配置管理类 ====================-
 
 class ConfigManager {
   constructor() {
