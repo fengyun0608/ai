@@ -20,7 +20,7 @@ const _path = process.cwd();
 const PLUGIN_PATH = path.join(_path, 'plugins/ai');
 const TEMP_IMAGE_DIR = path.join(_path, 'data/temp/ai_images');
 
-// ==================== 配置管理类 ====================-
+// ==================== 配置管理类 ====================
 
 class ConfigManager {
   constructor() {
@@ -412,6 +412,7 @@ export class XRKAIAssistant extends plugin {
         { reg: /^#关闭全局ai$/, fnc: 'disableGlobalAI', event: 'message.group', log: true },
         { reg: /^#ai拉黑 @/, fnc: 'blacklistUser', event: 'message.group', log: true },
         { reg: /^#ai拉白 @/, fnc: 'whitelistUser', event: 'message.group', log: true },
+        { reg: /^#ai刷新插件$/, fnc: 'refreshPlugins', event: 'message.group', log: true },
         { reg: /^#配置ai接口(.*)$/, fnc: 'setAIInterface', event: 'message.group', log: true },
         { reg: /^#配置ai密钥(.*)$/, fnc: 'setAIKey', event: 'message.group', log: true },
         { reg: /^#设置ai模型(.*)$/, fnc: 'setAIModel', event: 'message.group', log: true }
@@ -887,6 +888,23 @@ export class XRKAIAssistant extends plugin {
   }
 
   /**
+   * #ai刷新插件指令
+   */
+  async refreshPlugins(e) {
+    if (!e.isMaster) {
+      await e.reply('❌ 只有主人才能刷新插件！');
+      return true;
+    }
+    
+    await e.reply('🔄 正在扫描插件目录...');
+    await this.scanPlugins();
+    
+    const count = this.availablePlugins?.length || 0;
+    await e.reply(`✅ 插件扫描完成，共发现 ${count} 个插件。AI 已更新功能上下文。`);
+    return true;
+  }
+
+  /**
    * #配置ai接口指令
    */
   async setAIInterface(e) {
@@ -978,6 +996,111 @@ export class XRKAIAssistant extends plugin {
   }
 
   /**
+   * 扫描插件目录并自动检测功能
+   */
+  async scanPlugins() {
+    try {
+      const pluginsDir = path.resolve(process.cwd(), 'plugins');
+      if (!fs.existsSync(pluginsDir)) return;
+
+      const entries = await fs.promises.readdir(pluginsDir, { withFileTypes: true });
+      const pluginInfo = [];
+      const seenPluginNames = new Set();
+
+      // 提取文件信息的辅助函数
+      const extractInfo = async (filePath) => {
+        try {
+          const content = await fs.promises.readFile(filePath, 'utf8');
+          const nameMatch = content.match(/name:\s*['"`]([^'"`]+)['"`]/);
+          const dscMatch = content.match(/dsc:\s*['"`]([^'"`]+)['"`]/);
+          
+          if (!nameMatch) return null;
+
+          const name = nameMatch[1];
+          const dsc = dscMatch ? dscMatch[1] : '';
+          const commands = [];
+
+          // 扫描指令
+          const regMatches = content.match(/\/\^#?([^/]+)\//g);
+          if (regMatches) {
+            commands.push(...regMatches.map(m => m.replace(/^\/\^#?/, '').replace(/\/$/, '')));
+          }
+          
+          const strRegMatches = content.match(/reg:\s*['"`]\^?#?([^'"`$]+)\$?\s*['"`]/g);
+          if (strRegMatches) {
+            commands.push(...strRegMatches.map(m => {
+              const match = m.match(/reg:\s*['"`]\^?#?([^'"`$]+)\$?\s*['"`]/);
+              return match ? match[1].replace(/[()]/g, '') : null;
+            }).filter(Boolean));
+          }
+
+          return { name, dsc, commands: [...new Set(commands)] };
+        } catch (e) {
+          return null;
+        }
+      };
+
+      // 递归扫描目录
+      const scanDir = async (dirPath) => {
+        const files = await fs.promises.readdir(dirPath, { withFileTypes: true });
+        for (const file of files) {
+          const fullPath = path.resolve(dirPath, file.name);
+          if (file.isDirectory()) {
+            if (!['node_modules', 'resources', 'lib', 'data', 'temp'].includes(file.name)) {
+              await scanDir(fullPath);
+            }
+          } else if (file.name.endsWith('.js')) {
+            const info = await extractInfo(fullPath);
+            if (info && info.name && !seenPluginNames.has(info.name)) {
+              pluginInfo.push({
+                id: path.basename(fullPath, '.js'),
+                ...info
+              });
+              seenPluginNames.add(info.name);
+            } else if (info && info.name && seenPluginNames.has(info.name)) {
+              // 如果名称重复，合并指令
+              const existing = pluginInfo.find(p => p.name === info.name);
+              if (existing) {
+                existing.commands = [...new Set([...existing.commands, ...info.commands])];
+                if (!existing.dsc && info.dsc) existing.dsc = info.dsc;
+              }
+            }
+          }
+        }
+      };
+
+      for (const entry of entries) {
+        const fullPath = path.resolve(pluginsDir, entry.name);
+        if (entry.name.startsWith('.') || ['ai', 'stream', 'web-admin', 'node_modules'].includes(entry.name)) continue;
+
+        if (entry.isDirectory()) {
+          await scanDir(fullPath);
+        } else if (entry.name.endsWith('.js')) {
+          const info = await extractInfo(fullPath);
+          if (info && info.name && !seenPluginNames.has(info.name)) {
+            pluginInfo.push({
+              id: entry.name.replace('.js', ''),
+              ...info
+            });
+            seenPluginNames.add(info.name);
+          }
+        }
+      }
+
+      this.availablePlugins = pluginInfo;
+      console.log(`\x1b[32m🔌 插件自动检测: 已发现 ${pluginInfo.length} 个功能模块及其指令\x1b[0m`);
+      
+      // 同步到聊天工作流
+      const chatStream = StreamLoader.getStream('chat');
+      if (chatStream && typeof chatStream.updatePluginContext === 'function') {
+        chatStream.updatePluginContext(pluginInfo);
+      }
+    } catch (err) {
+      console.error(`\x1b[31m🔌 插件扫描失败：${err.message}\x1b[0m`);
+    }
+  }
+
+  /**
    * 初始化插件
    */
   async init() {
@@ -985,6 +1108,9 @@ export class XRKAIAssistant extends plugin {
     console.log('\x1b[36m                     【风云AI 助手初始化】                      \x1b[0m');
     
     this.globalAIState = new Map();
+    
+    // 扫描插件
+    await this.scanPlugins();
     
     try {
       await BotUtil.mkdir(TEMP_IMAGE_DIR);
