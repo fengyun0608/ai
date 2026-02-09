@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import session from 'express-session';
-import { RedisStore } from 'connect-redis';
+import RedisStore from 'connect-redis';
 import { createClient } from 'redis';
 
 // 获取当前文件目录路径（ES模块方式）

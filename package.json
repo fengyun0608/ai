@@ -1,0 +1,17 @@
+{
+  "name": "fengyun-ai-plugin",
+  "version": "1.0.0",
+  "description": "智能AI助手，支持群管理、识图、语义检索、网页管理端配置",
+  "main": "index.js",
+  "type": "module",
+  "author": "fengyun",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "form-data": "^4.0.0",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "connect-redis": "^7.1.0",
+    "redis": "^4.6.10"
+  }
+}
