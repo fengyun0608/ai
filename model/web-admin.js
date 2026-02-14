@@ -72,7 +72,7 @@ export async function loadWebAdmin() {
     console.log('\x1b[36m【风云AI-网页管理端】开始加载...\x1b[0m');
     
     // web-admin 目录在插件根目录下
-    const webAdminDir = path.join(_path, 'plugins/ai-plugin/web-admin');
+    const webAdminDir = path.join(_path, 'plugins/ai/web-admin');
     const webAdminModulePath = path.join(webAdminDir, 'app.js');
     
     if (!fs.existsSync(webAdminDir)) {

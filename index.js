@@ -8,7 +8,7 @@ console.log('【风云AI】正在初始化...');
 console.log('-------------------------');
 
 const _path = process.cwd();
-const pluginName = 'ai-plugin';
+const pluginName = 'ai';
 const pluginPath = path.join(_path, 'plugins', pluginName);
 
 // 依赖检测与自动安装
