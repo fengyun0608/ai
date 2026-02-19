@@ -1,6 +1,6 @@
 import plugin from '../../../lib/plugins/plugin.js';
 import Bot from '../../../lib/bot.js';
-import BotUtil from '../../../lib/common/util.js';
+import BotUtil from '../../../lib//util.js';
 import StreamLoader from '../../../lib/aistream/loader.js';
 import configManager from '../model/config.js';
 import aiLogic, { cleanInvalidCharacters } from '../model/ai-logic.js';
