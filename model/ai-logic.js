@@ -5,7 +5,7 @@ import FormData from 'form-data';
 import { promisify } from 'util';
 import { pipeline } from 'stream';
 import configManager from './config.js';
-import BotUtil from '../../../lib/common/util.js';
+import BotUtil from '../../../lib/util.js';
 
 const _path = process.cwd();
 const TEMP_IMAGE_DIR = path.join(_path, 'data/temp/ai_images');
