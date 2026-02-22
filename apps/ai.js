@@ -285,7 +285,8 @@ export class XRKAIAssistant extends plugin {
   }
 
   async handleMessage(e) {
-    const chatStream = StreamLoader.getStream('chat');
+    // 优先尝试获取合并后的工作流，如果没有则获取默认 chat 工作流
+    const chatStream = StreamLoader.getStream('chat-merged') || StreamLoader.getStream('chat');
     if (chatStream) chatStream.recordMessage(e);
 
     const shouldTrigger = await this.shouldTriggerAI(e);
@@ -302,52 +303,38 @@ export class XRKAIAssistant extends plugin {
       return false;
     }
 
-    const whitelist = configManager.getConfigValue('whitelist');
-    const isInWhitelist = () => {
-      if (e.isMaster) return true; // 主人默认白名单
-      if (e.isGroup) {
-        const result = (whitelist.groups || []).includes(Number(e.group_id));
-        if (!result) console.log(`\x1b[33m【风云AI】群 ${e.group_id} 不在白名单中\x1b[0m`);
-        return result;
-      }
-      // 私聊默认允许，除非在黑名单（前面已检查黑名单）
-      const result = (whitelist.users || []).includes(Number(e.user_id));
-      if (!result && whitelist.users?.length > 0) {
-        console.log(`\x1b[33m【风云AI】用户 ${e.user_id} 不在白名单中\x1b[0m`);
-        return result;
-      }
-      return true; // 如果白名单为空，私聊默认通过
-    };
-
-    const triggerConfig = configManager.getConfigValue('triggerConfig');
+    const whitelist = configManager.getConfigValue('whitelist') || {};
+    const triggerConfig = configManager.getConfigValue('triggerConfig') || {};
     
-    // 私聊默认触发 (只要不是黑名单且符合白名单逻辑)
+    // 私聊处理逻辑：默认不触发，仅支持前缀触发（响应用户"把私聊触发给永久去掉"的要求）
     if (!e.isGroup) {
-      // 如果私聊设置了必须前缀
       if (triggerConfig.prefix && e.msg?.startsWith(triggerConfig.prefix)) {
-        console.log(`\x1b[36m【风云AI】私聊前缀触发: ${triggerConfig.prefix}\x1b[0m`);
-        return isInWhitelist();
+        console.log(`\x1b[36m【风云AI】私聊检测到前缀触发: ${triggerConfig.prefix}\x1b[0m`);
+        return true;
       }
-      // 如果没有前缀，或者消息不带前缀，但我们希望私聊总是响应
-      if (!triggerConfig.prefix || !e.msg?.startsWith(triggerConfig.prefix)) {
-         // 只有当消息不是以 # 开头（避免冲突）时才自动触发，或者是主人
-         if (e.isMaster || !e.msg?.startsWith('#')) {
-           console.log(`\x1b[36m【风云AI】私聊自动触发\x1b[0m`);
-           return isInWhitelist();
-         }
-      }
+      return false;
     }
 
+    // 群聊处理逻辑
+    const groupWhitelist = whitelist.groups || [];
+    if (!groupWhitelist.includes(Number(e.group_id))) {
+      // console.log(`\x1b[33m【风云AI】群 ${e.group_id} 不在白名单中，但如果是 AT/前缀 将继续触发\x1b[0m`);
+    }
+    
     // AT 触发
     if (e.atBot) {
       console.log(`\x1b[36m【风云AI】检测到 AT 触发\x1b[0m`);
-      return isInWhitelist();
+      // 即使不在白名单群，只要 @Bot 且是群聊，通常也响应。
+      // 如果要严格限制，可以在这里加判断。
+      // 这里保持宽松：只要是群聊且 @Bot，就触发 (除非在黑名单)
+      return true;
     }
     
     // 前缀触发
     if (triggerConfig.prefix && e.msg?.startsWith(triggerConfig.prefix)) {
       console.log(`\x1b[36m【风云AI】检测到前缀触发: ${triggerConfig.prefix}\x1b[0m`);
-      return isInWhitelist();
+      // 同上，前缀触发通常也响应
+      return true;
     }
 
     // 全局/随机触发 (仅限群聊)
@@ -373,9 +360,23 @@ export class XRKAIAssistant extends plugin {
 
   async processAI(e) {
     try {
-      const chatStream = StreamLoader.getStream('chat');
+      // 尝试获取优化版工作流
+      let chatStream = StreamLoader.getStream('better-chat');
+      
+      // 如果未找到，尝试刷新加载（可能刚创建）
       if (!chatStream) {
-        console.log('\x1b[31m【风云AI】未找到 chat 工作流，请检查 plugins/stream/chat.js 是否正常加载\x1b[0m');
+          console.log('\x1b[36m【风云AI】尝试加载 better-chat 工作流...\x1b[0m');
+          await StreamLoader.load(true); 
+          chatStream = StreamLoader.getStream('better-chat');
+      }
+
+      // 降级策略
+      if (!chatStream) {
+          chatStream = StreamLoader.getStream('chat-merged') || StreamLoader.getStream('chat');
+      }
+
+      if (!chatStream) {
+        console.log('\x1b[31m【风云AI】未找到任何可用工作流 (better-chat/chat-merged/chat)\x1b[0m');
         return false;
       }
 
@@ -384,7 +385,7 @@ export class XRKAIAssistant extends plugin {
 
       console.log(`\x1b[36m【风云AI】正在处理 AI 请求 (全局触发: ${isGlobalTrigger})\x1b[0m`);
       
-      const question = await aiLogic.processMessageContent(e, chatStream);
+      const question = await aiLogic.processMessageContent(e);
       if (!isGlobalTrigger && !question.content && !question.imageDescriptions?.length) {
         console.log('\x1b[33m【风云AI】消息内容为空，且不是全局触发，回复默认提示\x1b[0m');
         await e.reply('有什么需要帮助的吗？');
@@ -405,25 +406,59 @@ export class XRKAIAssistant extends plugin {
       }
 
       console.log(`\x1b[36m【风云AI】调用 AI 接口: ${apiConfig.chatModel}\x1b[0m`);
-      let result;
-      for (let i = 0; i < 3; i++) {
-        try {
-          result = await chatStream.execute(e, questionObj, apiConfig);
-          if (result) break;
-        } catch (err) {
-          console.error(`\x1b[31m【风云AI】第 ${i + 1} 次尝试失败: ${err.message}\x1b[0m`);
-          if (i === 2) throw err;
-          await BotUtil.sleep(1000 * (i + 1));
-        }
+      
+      // 使用 stream.process 替代手动 execute 和 retry
+      // AIStream 内部已包含重试逻辑、工具执行和结果处理
+      
+      // 清空本轮回复记录，避免上一轮残留影响去重判断
+      chatStream._replyContentsThisTurn = [];
+
+      // 拦截 e.reply 以记录回复内容，用于后续去重
+      const originalReply = e.reply;
+      e.reply = async (content, quote, data) => {
+          if (content) {
+              chatStream._replyContentsThisTurn.push(typeof content === 'string' ? content : JSON.stringify(content));
+          }
+          return await originalReply.call(e, content, quote, data);
+      };
+
+      const result = await chatStream.process(e, questionObj, apiConfig);
+      
+      // 检查是否需要发送结果（去重处理）
+      let shouldReply = true;
+      const resultText = (result || '').trim();
+      
+      // 策略：如果本轮已经通过工具（如 reply, at, emotion）发送过消息，则不再发送 process 的返回值
+      // 因为返回值通常是 LLM 的思维过程、残留文本或重复内容
+      if (chatStream._replyContentsThisTurn && chatStream._replyContentsThisTurn.length > 0) {
+         console.log(`\x1b[36m【风云AI】本轮已通过工具发送过 ${chatStream._replyContentsThisTurn.length} 条消息，跳过发送 process 返回值\x1b[0m`);
+         shouldReply = false;
       }
 
-      if (result) {
-        console.log(`\x1b[32m【风云AI】AI 响应成功，正在发送消息\x1b[0m`);
-        const cleanResult = cleanInvalidCharacters(result);
-        await chatStream.sendMessages(e, cleanResult);
-      } else {
-        console.log('\x1b[33m【风云AI】AI 未返回有效结果\x1b[0m');
+      // 过滤工具反馈信息（以防万一）
+      if (resultText.includes('【reply 已成功】') || resultText.includes('【emotion 已成功】')) {
+        shouldReply = false;
       }
+
+      if (!resultText) {
+        shouldReply = false;
+      } else if (shouldReply && chatStream._replyContentsThisTurn && chatStream._replyContentsThisTurn.length > 0) {
+         // 双重检查：如果策略漏网，再进行内容比对
+         console.log(`\x1b[36m【风云AI】去重检查: resultText="${resultText.substring(0, 20)}..." vs sent=[${chatStream._replyContentsThisTurn.map(s => s.substring(0, 10)).join(', ')}]\x1b[0m`);
+         for (const sent of chatStream._replyContentsThisTurn) {
+            if (sent.includes(resultText) || resultText.includes(sent)) {
+               console.log(`\x1b[33m【风云AI】检测到重复内容，跳过发送: ${resultText.substring(0, 20)}...\x1b[0m`);
+               shouldReply = false;
+               break;
+            }
+         }
+      }
+
+      // 如果 process 返回了文本（且未通过工具发送），则在此回复
+      if (shouldReply) {
+        await e.reply(resultText);
+      }
+      
       return true;
     } catch (error) {
       console.error(`\x1b[31m【风云AI】AI 处理失败: ${error.message}\x1b[0m`);

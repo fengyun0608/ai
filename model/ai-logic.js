@@ -5,7 +5,6 @@ import FormData from 'form-data';
 import { promisify } from 'util';
 import { pipeline } from 'stream';
 import configManager from './config.js';
-import BotUtil from '../../../lib/util.js';
 
 const _path = process.cwd();
 const TEMP_IMAGE_DIR = path.join(_path, 'data/temp/ai_images');
@@ -189,7 +188,7 @@ export class AILogic {
   /**
    * 处理消息内容
    */
-  async processMessageContent(e, chatStream) {
+  async processMessageContent(e) {
     const visionConfig = configManager.getConfigValue('visionConfig');
     const triggerConfig = configManager.getConfigValue('triggerConfig');
     let content = '';
