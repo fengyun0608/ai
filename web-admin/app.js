@@ -16,19 +16,22 @@ let PORT = 54188;
 // Redis 客户端配置
 let redisClient;
 let redisStore;
+let useMemoryStore = false;
 
 // 初始化Redis客户端
 async function initRedis() {
+  const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379/0';
   try {
-    redisClient = createClient({
-      url: 'redis://127.0.0.1:6379/0'
+    redisClient = createClient({ url: redisUrl });
+    redisClient.on('error', (err) => {
+      console.error('Redis客户端错误:', err.message);
     });
     await redisClient.connect();
     redisStore = new RedisStore({ client: redisClient });
     console.log('✅ Redis连接成功');
   } catch (error) {
-    console.error('❌ Redis连接失败:', error);
-    // 退化为内存存储
+    console.error('❌ Redis连接失败，使用内存存储:', error.message);
+    useMemoryStore = true;
     redisStore = undefined;
   }
 }
@@ -202,16 +205,22 @@ export async function init() {
   await initRedis();
   
   // 配置session
-  app.use(session({
+  const sessionConfig = {
     secret: 'ai-web-admin-secret',
     resave: false,
     saveUninitialized: false,
-    store: redisStore,
     cookie: {
       secure: false,
-      maxAge: 30 * 60 * 1000 // 30分钟过期
+      maxAge: 30 * 60 * 1000
     }
-  }));
+  };
+  
+  // 仅在 Redis 可用时使用 Redis 存储
+  if (redisStore) {
+    sessionConfig.store = redisStore;
+  }
+  
+  app.use(session(sessionConfig));
   
   // 解析JSON请求体
   app.use(express.json());
@@ -237,7 +246,17 @@ export async function init() {
   
   // 根路由：重定向到独立的登录页面
   app.get('/', (req, res) => {
-    res.redirect('/login.html' + req.url.slice(1));
+    res.redirect('/new-login.html' + req.url.slice(1));
+  });
+
+  // 新的登录页路由
+  app.get('/new-login.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'new-login.html'));
+  });
+
+  // 新的配置页路由
+  app.get('/new-config.html', requireLogin, (req, res) => {
+    res.sendFile(path.join(__dirname, 'new-config.html'));
   });
 
   // 生成新验证码的路由
@@ -285,13 +304,13 @@ export async function init() {
     req.session.isLoggedIn = true;
     req.session.loginTime = now;
     
-    return res.json({ success: true, redirect: '/config.html' });
+    return res.json({ success: true, redirect: '/new-config.html' });
   });
   
   // 配置页路由（需要登录）
   app.get('/config.html', requireLogin, (req, res) => {
     // 静态文件托管已经处理了这个路由，这里只是确保登录验证
-    res.sendFile(path.join(__dirname, 'config.html'));
+    res.sendFile(path.join(__dirname, 'new-config.html'));
   });
   
   // 获取配置的路由（需要登录验证）

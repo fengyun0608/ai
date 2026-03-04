@@ -6,6 +6,9 @@ import configManager from '../model/config.js';
 import aiLogic, { cleanInvalidCharacters } from '../model/ai-logic.js';
 import { loadWebAdmin, getWebAdminState, getOuterIp, generateRandomCode } from '../model/web-admin.js';
 import { getPersona } from '../model/persona.js';
+import permissionManager from '../model/security.js';
+import path from 'path';
+import fs from 'fs';
 
 export class XRKAIAssistant extends plugin {
   constructor() {
@@ -141,6 +144,7 @@ export class XRKAIAssistant extends plugin {
 
   async showMenu(e) {
     const triggerConfig = configManager.getConfigValue('triggerConfig');
+    const permissionConfig = configManager.getConfigValue('permissionConfig');
     const menuMsg = [
       '🤖 风云AI助手 - 指令菜单',
       '━━━━━━━━━━━━━━━━━━━━━━',
@@ -149,7 +153,8 @@ export class XRKAIAssistant extends plugin {
       '👥 用户管理: #ai拉黑 @用户, #ai拉白 @用户',
       '⚙️ 配置: #配置ai接口, #配置ai密钥, #设置ai模型',
       '━━━━━━━━━━━━━━━━━━━━━━',
-      `📌 当前触发前缀: "${triggerConfig.prefix || '无'}"`
+      `📌 当前触发前缀: "${triggerConfig.prefix || '无'}"`,
+      '🔒 敏感操作(精华/公告/签到)需要管理员权限'
     ].join('\n');
     await e.reply(menuMsg);
     return true;
@@ -306,7 +311,6 @@ export class XRKAIAssistant extends plugin {
     const whitelist = configManager.getConfigValue('whitelist') || {};
     const triggerConfig = configManager.getConfigValue('triggerConfig') || {};
     
-    // 私聊处理逻辑：默认不触发，仅支持前缀触发（响应用户"把私聊触发给永久去掉"的要求）
     if (!e.isGroup) {
       if (triggerConfig.prefix && e.msg?.startsWith(triggerConfig.prefix)) {
         console.log(`\x1b[36m【风云AI】私聊检测到前缀触发: ${triggerConfig.prefix}\x1b[0m`);
@@ -315,29 +319,16 @@ export class XRKAIAssistant extends plugin {
       return false;
     }
 
-    // 群聊处理逻辑
-    const groupWhitelist = whitelist.groups || [];
-    if (!groupWhitelist.includes(Number(e.group_id))) {
-      // console.log(`\x1b[33m【风云AI】群 ${e.group_id} 不在白名单中，但如果是 AT/前缀 将继续触发\x1b[0m`);
-    }
-    
-    // AT 触发
     if (e.atBot) {
       console.log(`\x1b[36m【风云AI】检测到 AT 触发\x1b[0m`);
-      // 即使不在白名单群，只要 @Bot 且是群聊，通常也响应。
-      // 如果要严格限制，可以在这里加判断。
-      // 这里保持宽松：只要是群聊且 @Bot，就触发 (除非在黑名单)
       return true;
     }
     
-    // 前缀触发
     if (triggerConfig.prefix && e.msg?.startsWith(triggerConfig.prefix)) {
       console.log(`\x1b[36m【风云AI】检测到前缀触发: ${triggerConfig.prefix}\x1b[0m`);
-      // 同上，前缀触发通常也响应
       return true;
     }
 
-    // 全局/随机触发 (仅限群聊)
     if (e.isGroup) {
       const globalGroups = whitelist.globalGroups || [];
       if (globalGroups.includes(Number(e.group_id))) {
@@ -387,8 +378,21 @@ export class XRKAIAssistant extends plugin {
       
       const question = await aiLogic.processMessageContent(e);
       if (!isGlobalTrigger && !question.content && !question.imageDescriptions?.length) {
-        console.log('\x1b[33m【风云AI】消息内容为空，且不是全局触发，回复默认提示\x1b[0m');
+        console.log('\x1b[33m【风云AI】消息内容为空，发送默认提示+表情包\x1b[0m');
         await e.reply('有什么需要帮助的吗？');
+        const emotionTypes = ['开心', '大笑', '惊讶'];
+        const randomType = emotionTypes[Math.floor(Math.random() * emotionTypes.length)];
+        const emotionDir = path.join(process.cwd(), 'plugins/ai-plugin/resources/aiimages', randomType);
+        try {
+          const files = fs.readdirSync(emotionDir).filter(f => /\.(jpg|jpeg|png|gif)$/i.test(f));
+          if (files.length > 0) {
+            const randomFile = files[Math.floor(Math.random() * files.length)];
+            const segment = global.segment || (await import('oicq')).segment;
+            await e.reply(segment.image(path.join(emotionDir, randomFile)));
+          }
+        } catch (err) {
+          console.log('\x1b[33m【风云AI】发送表情包失败:', err.message, '\x1b[0m');
+        }
         return true;
       }
 
@@ -407,6 +411,11 @@ export class XRKAIAssistant extends plugin {
 
       console.log(`\x1b[36m【风云AI】调用 AI 接口: ${apiConfig.chatModel}\x1b[0m`);
       
+      const llmConfig = {
+        ...apiConfig,
+        model: apiConfig.chatModel
+      };
+      
       // 使用 stream.process 替代手动 execute 和 retry
       // AIStream 内部已包含重试逻辑、工具执行和结果处理
       
@@ -422,39 +431,36 @@ export class XRKAIAssistant extends plugin {
           return await originalReply.call(e, content, quote, data);
       };
 
-      const result = await chatStream.process(e, questionObj, apiConfig);
+      const result = await chatStream.process(e, questionObj, llmConfig);
       
-      // 检查是否需要发送结果（去重处理）
       let shouldReply = true;
       const resultText = (result || '').trim();
       
-      // 策略：如果本轮已经通过工具（如 reply, at, emotion）发送过消息，则不再发送 process 的返回值
-      // 因为返回值通常是 LLM 的思维过程、残留文本或重复内容
+      // 如果有工具执行过，检查是否还有额外的文字需要发送
       if (chatStream._replyContentsThisTurn && chatStream._replyContentsThisTurn.length > 0) {
-         console.log(`\x1b[36m【风云AI】本轮已通过工具发送过 ${chatStream._replyContentsThisTurn.length} 条消息，跳过发送 process 返回值\x1b[0m`);
-         shouldReply = false;
+         // 检查 resultText 是否是工具返回的重复内容
+         const isDuplicate = chatStream._replyContentsThisTurn.some(sent => 
+            sent.includes(resultText) || resultText.includes(sent)
+         );
+         
+         if (isDuplicate) {
+            console.log(`\x1b[36m【风云AI】工具已发送消息，跳过重复内容\x1b[0m`);
+            shouldReply = false;
+         } else if (resultText) {
+            // 有额外的文字需要发送
+            console.log(`\x1b[36m【风云AI】发送额外回复: ${resultText.slice(0, 50)}...\x1b[0m`);
+         }
       }
 
-      // 过滤工具反馈信息（以防万一）
-      if (resultText.includes('【reply 已成功】') || resultText.includes('【emotion 已成功】')) {
+      // 过滤工具反馈信息
+      if (resultText.includes('【reply 已成功】') || resultText.includes('【emotion 已成功】') || resultText.includes('已记住') || resultText.includes('已戳')) {
         shouldReply = false;
       }
 
       if (!resultText) {
         shouldReply = false;
-      } else if (shouldReply && chatStream._replyContentsThisTurn && chatStream._replyContentsThisTurn.length > 0) {
-         // 双重检查：如果策略漏网，再进行内容比对
-         console.log(`\x1b[36m【风云AI】去重检查: resultText="${resultText.substring(0, 20)}..." vs sent=[${chatStream._replyContentsThisTurn.map(s => s.substring(0, 10)).join(', ')}]\x1b[0m`);
-         for (const sent of chatStream._replyContentsThisTurn) {
-            if (sent.includes(resultText) || resultText.includes(sent)) {
-               console.log(`\x1b[33m【风云AI】检测到重复内容，跳过发送: ${resultText.substring(0, 20)}...\x1b[0m`);
-               shouldReply = false;
-               break;
-            }
-         }
       }
 
-      // 如果 process 返回了文本（且未通过工具发送），则在此回复
       if (shouldReply) {
         await e.reply(resultText);
       }

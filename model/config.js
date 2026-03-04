@@ -56,6 +56,15 @@ export const defaultConfig = {
     similarityThreshold: 0.6,
     cacheExpiry: 86400
   },
+  // 安全权限配置
+  permissionConfig: {
+    enabled: true,
+    masterOnlyMode: false,
+    protectedActions: ['setEssence', 'removeEssence', 'announce', 'signIn'],
+    protectedActionPermission: 'admin',
+    protectedUsers: [],
+    cantTouchMaster: true
+  },
   // 安全配置
   securityConfig: {
     webAdminPort: 54188,
