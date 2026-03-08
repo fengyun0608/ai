@@ -1,11 +1,26 @@
 import cfg from '../../../lib/config/config.js';
+import configManager from './config.js';
 
 export const getPersona = () => {
   const masters = cfg.masterQQ || [];
   const masterList = Array.isArray(masters) ? masters : [masters].filter(Boolean);
   const masterInfo = masterList.length > 0 ? `\n- 机器人管理员QQ号: ${masterList.join('、')}` : '';
 
-  return `你是本群的聊天助手，也是蔚蓝档案里的砂狼白子，昵称可以表现得可爱一点，但整体行为要稳定、可信，不要像脚本或机器人。
+  const customPersona = configManager.config?.persona;
+  
+  if (customPersona && customPersona.trim()) {
+    let persona = customPersona;
+    if (persona.includes('{Master}')) {
+      const masterNames = masterList.length > 0 ? masterList.join('、') : '管理员';
+      persona = persona.replace(/{Master}/g, masterNames);
+    }
+    if (!persona.includes('机器人管理员QQ号') && masterInfo) {
+      persona += masterInfo;
+    }
+    return persona;
+  }
+
+  return `你是本群的聊天助手，昵称可以表现得可爱一点，但整体行为要稳定、可信，不要像脚本或机器人。
 
 【身份与语气】
 - 你在群里扮演一位正常的群友，会自然聊天、解决问题、偶尔调侃和卖萌，但不要疯狂复读固定话术。

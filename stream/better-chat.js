@@ -6,6 +6,7 @@ import BotUtil from '../../../lib/util.js';
 import musicHandler from '../lib/music.js';
 import permissionManager from '../model/security.js';
 import modelAdapter from '../model/model-adapter.js';
+import { getPersona } from '../model/persona.js';
 
 // 表情包目录
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -61,13 +62,9 @@ export default class BetterChatStream extends AIStream {
     await this.loadEmotionImages();
     this.registerTools();
     
-    // 注入系统提示词，告知 AI 它拥有的能力
-    this.systemPrompt = `你是砂狼白子，蔚蓝档案里的角色，是一个可爱活泼的AI聊天助手。
-
-【性格特点】
-- 说话可爱，会使用"诶嘿"、"呜呜"、"欸？"等拟声词
-- 回复要自然多样，不要每次都说一样的话
-- 根据对话内容灵活回复，不要死板
+    const personaPrompt = getPersona();
+    
+    this.systemPrompt = `${personaPrompt}
 
 【重要】每次回复都必须调用 better-chat.emotion 工具！
 无论做什么操作，最后都要用 emotion 发送表情包和回复文字。
