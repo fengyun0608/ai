@@ -22,6 +22,7 @@ export class XRKAIAssistant extends plugin {
         { reg: /^#ai配置(登陆|登录)$/, fnc: 'sendConfigUrl', log: true },
         { reg: /^#ai状态$/, fnc: 'showStatus', log: true },
         { reg: /^#ai配置查看$/, fnc: 'showConfig', log: true },
+        { reg: /^#ai更新日志$/, fnc: 'showChangelog', log: true },
         { reg: /^#加入本群ai$/, fnc: 'addGroupToWhitelist', event: 'message.group', log: true },
         { reg: /^#关闭本群ai$/, fnc: 'removeGroupFromWhitelist', event: 'message.group', log: true },
         { reg: /^#开启全局ai$/, fnc: 'enableGlobalAI', event: 'message.group', log: true },
@@ -148,7 +149,7 @@ export class XRKAIAssistant extends plugin {
     const menuMsg = [
       '🤖 风云AI助手 - 指令菜单',
       '━━━━━━━━━━━━━━━━━━━━━━',
-      '📋 基础指令: #ai菜单, #ai状态, #ai配置查看, #ai配置登陆',
+      '📋 基础指令: #ai菜单, #ai状态, #ai配置查看, #ai配置登陆, #ai更新日志',
       '📊 群管理: #加入本群ai, #关闭本群ai, #开启全局ai, #关闭全局ai',
       '👥 用户管理: #ai拉黑 @用户, #ai拉白 @用户',
       '⚙️ 配置: #配置ai接口, #配置ai密钥, #设置ai模型',
@@ -189,6 +190,68 @@ export class XRKAIAssistant extends plugin {
     ].join('\n');
     await e.reply(configMsg);
     return true;
+  }
+
+  async showChangelog(e) {
+    try {
+      const changelogUrl = 'https://raw.gitcode.com/fengyunnb_admin/ai/raw/main/CHANGELOG.md';
+      
+      const response = await fetch(changelogUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        timeout: 15000
+      });
+      
+      if (!response.ok) {
+        await e.reply('❌ 获取更新日志失败，请稍后重试');
+        return true;
+      }
+      
+      let changelogText = await response.text();
+      
+      const latestVersionMatch = changelogText.match(/## \[([\d.]+)\][\s\S]*?(?=## \[|$)/);
+      if (!latestVersionMatch) {
+        await e.reply('❌ 解析更新日志失败');
+        return true;
+      }
+      
+      const versionNumber = latestVersionMatch[1];
+      let content = latestVersionMatch[0];
+      
+      content = content
+        .replace(/## \[[\d.]+\].*?-\s*(\d{4}-\d{2}-\d{2})/, '📦 版本: $1')
+        .replace(/## \[[\d.]+\]\s*-\s*/, '📦 版本: ')
+        .replace(/####\s*/g, '▶ ')
+        .replace(/###\s*/g, '◆ ')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/^\s*[-•]\s*/gm, '  • ')
+        .replace(/^\s*\d+\.\s*/gm, '  $1. ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      
+      const lines = content.split('\n');
+      const maxLines = 30;
+      if (lines.length > maxLines) {
+        content = lines.slice(0, maxLines).join('\n') + '\n...';
+      }
+      
+      const forwardMsg = [
+        `📜 风云AI助手 更新日志`,
+        `━━━━━━━━━━━━━━━━━━━━━━`,
+        content,
+        `━━━━━━━━━━━━━━━━━━━━━━`,
+        `🔗 完整日志: https://github.com/fengyun0608/ai`
+      ].join('\n');
+      
+      await e.reply(forwardMsg);
+      return true;
+    } catch (error) {
+      console.error(`\x1b[31m【风云AI】获取更新日志失败: ${error.message}\x1b[0m`);
+      await e.reply(`❌ 获取更新日志失败: ${error.message}`);
+      return true;
+    }
   }
 
   async addGroupToWhitelist(e) {
